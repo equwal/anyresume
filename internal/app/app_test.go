@@ -234,3 +234,15 @@ func TestFindSession(t *testing.T) {
 		t.Fatalf("findSession(exact) = %v, %v", s, err)
 	}
 }
+
+func TestResumeCommandRemote(t *testing.T) {
+	t.Setenv(remoteEnv, "ssh -t -p 2201 jose@127.0.0.1 /home/jose/.local/bin/anyresume")
+	got, err := resumeCommand("0123abcd-0000-0000-0000-000000000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "ssh -t -p 2201 jose@127.0.0.1 /home/jose/.local/bin/anyresume resume 0123abcd-0000-0000-0000-000000000000"
+	if got != want {
+		t.Fatalf("resumeCommand = %q, want %q", got, want)
+	}
+}

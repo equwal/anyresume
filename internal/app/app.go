@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -134,6 +136,9 @@ func newEnv() (*env, error) {
 // sessions returns the Claude Code sessions and the Codex, Copilot CLI, and
 // Antigravity sessions of this user, newest first.
 func (e *env) sessions() ([]session.Session, error) {
+	if r := os.Getenv(remoteEnv); r != "" {
+		return remoteSessions(r)
+	}
 	s, err := session.Discover(e.configDir, e.desktopDir)
 	if err != nil {
 		return nil, err
@@ -145,6 +150,28 @@ func (e *env) sessions() ([]session.Session, error) {
 	s = append(s, session.DiscoverOthers(home)...)
 	sort.SliceStable(s, func(i, j int) bool { return s[i].LastActive.After(s[j].LastActive) })
 	return s, nil
+}
+
+// remoteEnv names the variable for remote host mode. Its value is the
+// command that runs anyresume on another machine, for example
+// "ssh -t -p 2201 jose@127.0.0.1 /home/jose/.local/bin/anyresume". Then the
+// sessions come from "list --json" on that machine, and each tab resumes
+// its session there.
+const remoteEnv = "ANYRESUME_REMOTE"
+
+// remoteSessions runs "list --json" through the remote command r.
+func remoteSessions(r string) ([]session.Session, error) {
+	argv := strings.Fields(r)
+	// -t asks for a terminal, which a pipe does not have.
+	argv = slices.DeleteFunc(argv, func(a string) bool { return a == "-t" })
+	cmd := exec.Command(argv[0], append(argv[1:], "list", "--json")...)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list sessions on the remote host: %w", err)
+	}
+	var s []session.Session
+	return s, json.Unmarshal(out, &s)
 }
 
 // holders returns the live holders of sessions. The registry is optional:
@@ -297,6 +324,9 @@ func sessionDir(s session.Session) string {
 // ID: the path of this program and "resume <id>". Session IDs are UUIDs, so
 // the ID needs no quotes.
 func resumeCommand(id string) (string, error) {
+	if r := os.Getenv(remoteEnv); r != "" {
+		return r + " resume " + id, nil
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
